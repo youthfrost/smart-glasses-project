@@ -8,8 +8,11 @@ env/
 venv/
 .venv/
 
-# Environment variables
+# Environment variables - all .env files everywhere
 .env
+.env.*
+**/.env
+**/.env.*
 
 # Node.js dependencies
 node_modules/
@@ -23,6 +26,7 @@ node_modules/
 # OS files
 .DS_Store
 Thumbs.db
-.env
+
+# Project specific
 **/frames/
 **/leetcoe_screenshots/
