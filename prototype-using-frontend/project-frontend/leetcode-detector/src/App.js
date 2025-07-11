@@ -22,6 +22,7 @@ function App() {
   // Add camera selection states
   const [availableDevices, setAvailableDevices] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
+  const [hasPermission, setHasPermission] = useState(false);
 
   // Add multi-page capture states
   const [capturedFrames, setCapturedFrames] = useState([]);
@@ -63,22 +64,74 @@ function App() {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // Get available video devices
-  const getVideoDevices = useCallback(async () => {
+  // Request camera permission and get devices with proper labels
+  const requestPermissionAndGetDevices = useCallback(async () => {
     try {
+      addLog('🔐 Requesting camera permission...', 'info');
+      
+      // Request camera permission first
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setHasPermission(true);
+      addLog('✅ Camera permission granted', 'success');
+      
+      // Stop the temporary stream
+      stream.getTracks().forEach(track => track.stop());
+      
+      // Now get devices with proper labels
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      
       setAvailableDevices(videoDevices);
       
-      // Only set default device if none is currently selected
+      // Set default device if none selected
       if (!selectedDeviceId && videoDevices.length > 0) {
         setSelectedDeviceId(videoDevices[0].deviceId);
       }
       
-      addLog(`📹 Found ${videoDevices.length} video device(s)`, 'info');
+      addLog(`📹 Found ${videoDevices.length} camera(s)`, 'info');
+      
+      // Log each camera for debugging
+      videoDevices.forEach((device, index) => {
+        addLog(`  📷 ${index + 1}: ${device.label || 'Unknown Camera'}`, 'info');
+      });
+      
+    } catch (error) {
+      console.error('Permission error:', error);
+      addLog('❌ Camera permission denied: ' + error.message, 'error');
+      setHasPermission(false);
+    }
+  }, [addLog, selectedDeviceId]);
+
+  // Get available video devices (without permission)
+  const getVideoDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      
+      // Add generic labels if no permission
+      const devicesWithLabels = videoDevices.map((device, index) => ({
+        ...device,
+        label: device.label || `Camera ${index + 1}`
+      }));
+      
+      setAvailableDevices(devicesWithLabels);
+      
+      // Only set default device if none is currently selected
+      if (!selectedDeviceId && devicesWithLabels.length > 0) {
+        setSelectedDeviceId(devicesWithLabels[0].deviceId);
+      }
+      
+      addLog(`📹 Found ${devicesWithLabels.length} camera(s)`, 'info');
+      
+      // Check if we have proper labels
+      const hasProperLabels = videoDevices.some(device => device.label && device.label.trim() !== '');
+      if (!hasProperLabels && videoDevices.length > 0) {
+        addLog('⚠️ Camera names not available - permission needed', 'warning');
+      }
+      
     } catch (error) {
       console.error('Error getting video devices:', error);
-      addLog('❌ Failed to get video devices', 'error');
+      addLog('❌ Failed to get video devices: ' + error.message, 'error');
     }
   }, [addLog, selectedDeviceId]);
 
@@ -99,16 +152,17 @@ function App() {
     };
   }, [getVideoDevices]);
 
-  // Start camera with selected device
+  // Start camera with selected device - FIXED CONSTRAINTS
   const startCamera = async () => {
     try {
-      addLog('🔄 Requesting camera access...', 'info');
+      addLog('🔄 Starting camera...', 'info');
       
+      // Use more flexible constraints
       const constraints = {
         video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          deviceId: selectedDeviceId ? { exact: selectedDeviceId } : undefined
+          width: { min: 640, ideal: 1280, max: 1920 },
+          height: { min: 480, ideal: 720, max: 1080 },
+          ...(selectedDeviceId && { deviceId: { exact: selectedDeviceId } })
         }
       };
       
@@ -117,17 +171,65 @@ function App() {
       videoRef.current.srcObject = mediaStream;
       setStream(mediaStream);
       setIsStreaming(true);
+      setHasPermission(true);
       
       // Get the selected device name for logging
       const selectedDevice = availableDevices.find(device => device.deviceId === selectedDeviceId);
-      const deviceName = selectedDevice?.label || 'Unknown Device';
+      const deviceName = selectedDevice?.label || 'Camera';
       
-      addLog(`✅ Camera connected: ${deviceName}`, 'success');
-      console.log('Camera started successfully');
+      addLog(`✅ Camera started: ${deviceName}`, 'success');
+      
+      // Refresh device list after permission is granted
+      setTimeout(() => {
+        requestPermissionAndGetDevices();
+      }, 500);
+      
     } catch (error) {
       console.error('Error accessing camera:', error);
-      addLog('❌ Failed to access camera: ' + error.message, 'error');
-      alert('Failed to access camera. Please check permissions and ensure no other apps are using the camera.');
+      addLog('❌ Failed to start camera: ' + error.message, 'error');
+      
+      // Try fallback with basic constraints if over-constrained
+      if (error.name === 'OverconstrainedError') {
+        try {
+          addLog('🔄 Trying with basic constraints...', 'info');
+          
+          const fallbackConstraints = {
+            video: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true
+          };
+          
+          const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+          
+          videoRef.current.srcObject = fallbackStream;
+          setStream(fallbackStream);
+          setIsStreaming(true);
+          setHasPermission(true);
+          
+          addLog('✅ Camera started with basic settings', 'success');
+          
+        } catch (fallbackError) {
+          console.error('Fallback also failed:', fallbackError);
+          addLog('❌ Camera failed even with basic settings: ' + fallbackError.message, 'error');
+          
+          if (fallbackError.name === 'NotAllowedError') {
+            alert('Camera permission denied. Please allow camera access and try again.');
+          } else if (fallbackError.name === 'NotFoundError') {
+            alert('No camera found. Please connect a camera and refresh.');
+          } else {
+            alert('Camera error: ' + fallbackError.message);
+          }
+        }
+      } else {
+        // Handle other errors
+        if (error.name === 'NotAllowedError') {
+          alert('Camera permission denied. Please allow camera access and try again.');
+        } else if (error.name === 'NotFoundError') {
+          alert('No camera found. Please connect a camera and refresh.');
+        } else if (error.name === 'NotReadableError') {
+          alert('Camera is busy. Please close other apps using the camera.');
+        } else {
+          alert('Camera error: ' + error.message);
+        }
+      }
     }
   };
 
@@ -139,7 +241,7 @@ function App() {
       setIsStreaming(false);
       setIsProcessing(false);
       
-      addLog('⏹️ Camera disconnected', 'warning');
+      addLog('⏹️ Camera stopped', 'warning');
       console.log('Camera stopped');
     }
   };
@@ -389,11 +491,15 @@ function App() {
             disabled={isStreaming}
             className="camera-dropdown"
           >
-            {availableDevices.map((device) => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Camera ${device.deviceId.slice(0, 8)}...`}
-              </option>
-            ))}
+            {availableDevices.length === 0 ? (
+              <option value="">No cameras found</option>
+            ) : (
+              availableDevices.map((device, index) => (
+                <option key={`${device.deviceId}-${index}`} value={device.deviceId}>
+                  {device.label || `Camera ${device.deviceId.slice(0, 8)}...`}
+                </option>
+              ))
+            )}
           </select>
           <button 
             onClick={getVideoDevices} 
@@ -402,13 +508,37 @@ function App() {
           >
             🔄 Refresh
           </button>
+          <button 
+            onClick={requestPermissionAndGetDevices} 
+            disabled={isStreaming}
+            className="btn btn-permission"
+            style={{ 
+              backgroundColor: hasPermission ? '#28a745' : '#007bff',
+              color: 'white' 
+            }}
+          >
+            {hasPermission ? '✅ Permission OK' : '🔐 Grant Permission'}
+          </button>
         </div>
+
+        {/* Browser compatibility notice */}
+        {availableDevices.length > 0 && !hasPermission && (
+          <div style={{ 
+            padding: '10px', 
+            backgroundColor: '#fff3cd', 
+            border: '1px solid #ffeaa7', 
+            borderRadius: '4px', 
+            margin: '10px 0' 
+          }}>
+            <p>💡 <strong>Chrome/Firefox users:</strong> Click "Grant Permission" first to see camera names and enable the Start Camera button.</p>
+          </div>
+        )}
         
         {/* Controls */}
         <div className="controls">
           <button 
             onClick={startCamera} 
-            disabled={isStreaming || !selectedDeviceId}
+            disabled={isStreaming || !selectedDeviceId || availableDevices.length === 0}
             className="btn btn-primary"
           >
             📹 Start Camera
@@ -458,6 +588,9 @@ function App() {
           <span className={isStreaming ? 'status-on' : 'status-off'}>
             Camera: {isStreaming ? '🟢 ON' : '🔴 OFF'}
           </span>
+          <span className={hasPermission ? 'status-on' : 'status-off'}>
+            Permission: {hasPermission ? '🟢 GRANTED' : '🔴 NEEDED'}
+          </span>
           <span className={isProcessing ? 'status-on' : 'status-off'}>
             Capturing: {isProcessing ? `🟢 ACTIVE (${processingTimeLeft}s)` : '🔴 STOPPED'}
           </span>
@@ -504,7 +637,22 @@ function App() {
               
               {!isStreaming && (
                 <div className="placeholder">
-                  <p>📷 Select a camera and click "Start Camera" to begin</p>
+                  {availableDevices.length === 0 ? (
+                    <div>
+                      <p>📷 No cameras detected</p>
+                      <p>Please connect a camera and click "Refresh"</p>
+                    </div>
+                  ) : !hasPermission ? (
+                    <div>
+                      <p>📷 Camera permission needed</p>
+                      <p>Click "Grant Permission" first, then "Start Camera"</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p>📷 Ready to start camera</p>
+                      <p>Click "Start Camera" to begin</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
