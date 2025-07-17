@@ -30,8 +30,8 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Processing duration (5 seconds)
-  const PROCESSING_DURATION = 5000; // 5 seconds
-  const CAPTURE_INTERVAL = 1000; // Capture every 1 second
+  const PROCESSING_DURATION = 7000; // 5 seconds
+  const CAPTURE_INTERVAL = 500; // Capture every 0.5 seconds
 
   // Refs to store interval IDs for cleanup
   const countdownIntervalRef = useRef(null);
@@ -530,7 +530,7 @@ function App() {
             borderRadius: '4px', 
             margin: '10px 0' 
           }}>
-            <p>💡 <strong>Chrome/Firefox users:</strong> Click "Grant Permission" first to see camera names and enable the Start Camera button.</p>
+            <p>💡 <strong>Users:</strong> Click "Grant Permission" first to see camera names and enable the Start Camera button.</p>
           </div>
         )}
         
@@ -559,7 +559,7 @@ function App() {
               disabled={!isStreaming}
               className="btn btn-success"
             >
-              🔍 Start Multi-Page Capture (5s)
+              🔍 Start Multi-Page Capture (7s)
             </button>
           ) : (
             <button 

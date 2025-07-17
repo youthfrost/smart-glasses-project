@@ -1,0 +1,10 @@
+
+
+# Environment variables - all .env files everywhere
+.env
+.env.*
+**/.env
+**/.env.*
+
+/development
+development
