@@ -81,20 +81,21 @@ You are a helpful assistant. Clean up and format the following LeetCode question
 
 
 #example usage
-video_path = "leetcode_scroll.mp4"
-frame_folder = "frames"
+def process_video(video_path):
+    #video_path = "leetcode_scroll.mp4"
+    frame_folder = "frames"
 
-extract_frames(video_path, frame_folder)
+    extract_frames(video_path, frame_folder)
 
-ocr_texts = []
-for fname in os.listdir(frame_folder):
-    img_path = os.path.join(frame_folder, fname)
-    image = cv2.imread(img_path)
-    if not is_blurry(image):
-        ocr_texts.append(ocr_frame(img_path))
+    ocr_texts = []
+    for fname in os.listdir(frame_folder):
+        img_path = os.path.join(frame_folder, fname)
+        image = cv2.imread(img_path)
+        if not is_blurry(image):
+            ocr_texts.append(ocr_frame(img_path))
 
-labels = cluster_texts(ocr_texts)
-merged_text = merge_clusters(ocr_texts, labels)
+    labels = cluster_texts(ocr_texts)
+    merged_text = merge_clusters(ocr_texts, labels)
 
-clean_question = clean_with_llm(merged_text)
-print(clean_question)
+    clean_question = clean_with_llm(merged_text)
+    return clean_question
