@@ -73,7 +73,7 @@ You are a helpful assistant. Clean up and format the following LeetCode question
 {merged_text}
 """
     response = openai.ChatCompletion.create(
-        model="gpt-4o",
+        model="gpt-4.1-nano",
         messages=[{"role": "user", "content": prompt}]
     )
     return response['choices'][0]['message']['content']
