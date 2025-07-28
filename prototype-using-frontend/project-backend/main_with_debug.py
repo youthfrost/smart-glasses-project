@@ -1,8 +1,8 @@
+import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 import json
-
 import asyncio
 import io
 import os
@@ -13,7 +13,6 @@ import cv2
 import numpy as np
 from dotenv import load_dotenv
 from openai import OpenAI
-import uvicorn
 import base64
 # Load environment variables
 load_dotenv()
@@ -29,8 +28,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 
 class ImageProcessor:
     @staticmethod
@@ -242,7 +239,15 @@ async def process_frames_development(request: Request):
         print("🔄 DEVELOPMENT FRAME PROCESSING WITH HOMOGRAPHY & PANORAMA & REJECTION (NO CROPPING)...")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_dir = "development"
-
+        session_dir = os.path.join(base_dir, timestamp)
+        before_dir = os.path.join(session_dir, "before_homography")
+        after_dir = os.path.join(session_dir, "after_homography")
+        rejected_dir = os.path.join(session_dir, "rejected_homography")
+        debug_dir = os.path.join(session_dir, "debug_visualization")
+        os.makedirs(before_dir, exist_ok=True)
+        os.makedirs(after_dir, exist_ok=True)
+        os.makedirs(rejected_dir, exist_ok=True)
+        os.makedirs(debug_dir, exist_ok=True)
         form_data = await request.form()
         print(f"📥 Form data items: {len(form_data)}")
         all_images = []
@@ -259,7 +264,8 @@ async def process_frames_development(request: Request):
                     print(f"✅ Processing {key}")
                     processed_img, status = ImageProcessor.document_scanner_homography(
                         original_img,
-                        save_debug=False,
+                        save_debug=True,
+                        debug_dir=debug_dir,
                         frame_key=key,
                         blur_threshold=100.0  # You can adjust this threshold
                     )
@@ -276,29 +282,34 @@ async def process_frames_development(request: Request):
                             "status": "accepted"
                         }
                         all_images.append(image_data)
-                        
-             
+                        before_path = os.path.join(before_dir, f"{key}_original.png")
+                        after_path = os.path.join(after_dir, f"{key}_homography.png")
+                        original_img.save(before_path)
+                        processed_img.save(after_path)
                         processing_results.append({
                             "frame_key": key,
-           
-         
+                            "original_path": before_path,
+                            "processed_path": after_path,
+                            "debug_path": os.path.join(debug_dir, key),
                             "original_size": f"{original_img.width}x{original_img.height}",
                             "processed_size": f"{processed_img.width}x{processed_img.height}",
                             "original_file_size": len(file_data),
-                            
+                            "processed_file_size": os.path.getsize(after_path),
                             "status": "accepted"
                         })
                         frame_count += 1
                         print(f"✅ ACCEPTED {key} - homography successful")
                     else:
-                        
+                        rejected_path = os.path.join(rejected_dir, f"{key}_rejected_{status}.png")
+                        original_img.save(rejected_path)
                         rejected_images.append({
                             "key": key,
                             "filename": getattr(value, 'filename', 'unknown'),
                             "size_bytes": len(file_data),
                             "image_size": f"{original_img.width}x{original_img.height}",
                             "rejection_reason": status,
-
+                            "rejected_path": rejected_path,
+                            "debug_path": os.path.join(debug_dir, key)
                         })
                         rejected_count += 1
                         print(f"❌ REJECTED {key} - {status}")
@@ -319,7 +330,14 @@ async def process_frames_development(request: Request):
                 "success": True,
                 "message": f"Development processing complete! {frame_count} accepted, {rejected_count} rejected (NO cropping)",
                 "timestamp": timestamp,
-
+                "session_directory": session_dir,
+                "directories": {
+                    "session": session_dir,
+                    "before_homography": before_dir,
+                    "after_homography": after_dir,
+                    "rejected_homography": rejected_dir,
+                    "debug_visualization": debug_dir
+                },
                 "frame_count": frame_count,
                 "rejected_count": rejected_count,
                 "all_images_count": len(all_images),
@@ -445,7 +463,6 @@ For now, the AI analysis above contains the problem understanding and solution.
             "success": False,
             "error": f"Development processing failed: {str(e)}"
         })
-
 
 def main():
     print("🚀 Starting ENHANCED DEVELOPMENT server on http://localhost:8000")

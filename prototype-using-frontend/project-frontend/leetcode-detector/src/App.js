@@ -29,14 +29,21 @@ function App() {
   const [processingTimeLeft, setProcessingTimeLeft] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Processing duration (5 seconds)
-  const PROCESSING_DURATION = 7000; // 5 seconds
+  // Add countdown states
+  const [isCountingDown, setIsCountingDown] = useState(false);
+  const [countdownValue, setCountdownValue] = useState(0);
+
+  
+  // Processing duration (7 seconds)
+  const PROCESSING_DURATION = 7000; // 7 seconds
   const CAPTURE_INTERVAL = 500; // Capture every 0.5 seconds
+  const COUNTDOWN_DURATION = 3000; // 3 seconds countdown
 
   // Refs to store interval IDs for cleanup
   const countdownIntervalRef = useRef(null);
   const captureIntervalRef = useRef(null);
   const processingTimeoutRef = useRef(null);
+  const readyCountdownRef = useRef(null);
 
   // Add log entry with duplicate prevention
   const addLog = useCallback((message, type = 'info') => {
@@ -380,17 +387,18 @@ function App() {
       clearTimeout(processingTimeoutRef.current);
       processingTimeoutRef.current = null;
     }
+    if (readyCountdownRef.current) {
+      clearInterval(readyCountdownRef.current);
+      readyCountdownRef.current = null;
+    }
   }, []);
 
-  // Start processing (capture frames for 5 seconds)
-  const startProcessing = useCallback(() => {
-    // Cleanup any existing timers first
-    cleanupTimers();
-    
+  // Start the actual frame capture process
+  const startActualProcessing = useCallback(() => {
     setIsProcessing(true);
     setCapturedFrames([]);
     setProcessingTimeLeft(PROCESSING_DURATION / 1000);
-    addLog('🔄 Started multi-page capture (5 seconds)', 'info');
+    addLog('🔄 Started multi-page capture (7 seconds)', 'info');
     
     const startTime = Date.now();
     
@@ -438,10 +446,41 @@ function App() {
     
   }, [captureFrame, processFrames, addLog, cleanupTimers]);
 
+  // Start processing (with 3-second countdown first)
+  const startProcessing = useCallback(() => {
+    // Cleanup any existing timers first
+    cleanupTimers();
+    
+    setIsCountingDown(true);
+    setCountdownValue(3);
+    addLog('⏰ Get ready! Starting countdown...', 'info');
+    
+    const countdownStart = Date.now();
+    
+    // Ready countdown timer (3, 2, 1)
+    readyCountdownRef.current = setInterval(() => {
+      const elapsed = Date.now() - countdownStart;
+      const remaining = Math.max(0, (COUNTDOWN_DURATION - elapsed) / 1000);
+      const countValue = Math.ceil(remaining);
+      
+      setCountdownValue(countValue);
+      
+      if (countValue <= 0) {
+        clearInterval(readyCountdownRef.current);
+        readyCountdownRef.current = null;
+        setIsCountingDown(false);
+        
+        // Start actual processing
+        startActualProcessing();
+      }
+    }, 100);
+  }, [cleanupTimers, addLog, startActualProcessing]);
+
   // Stop processing manually
   const stopProcessing = useCallback(() => {
     cleanupTimers();
     setIsProcessing(false);
+    setIsCountingDown(false);
     setProcessingTimeLeft(0);
     addLog('⏸️ Processing stopped manually', 'warning');
     
@@ -473,6 +512,8 @@ function App() {
     setCapturedFrames([]);
     setIsAnalyzing(false);
     setDetectedText(''); // Reset detected text
+    setIsCountingDown(false);
+    setCountdownValue(0);
     addLog('🔄 Ready to scan again', 'info');
   };
 
@@ -553,7 +594,7 @@ function App() {
           </button>
           
           {/* Processing Controls */}
-          {!isProcessing && !isAnalyzing ? (
+          {!isProcessing && !isAnalyzing && !isCountingDown ? (
             <button 
               onClick={startProcessing} 
               disabled={!isStreaming}
@@ -564,7 +605,7 @@ function App() {
           ) : (
             <button 
               onClick={stopProcessing} 
-              disabled={!isProcessing || isAnalyzing}
+              disabled={isAnalyzing}
               className="btn btn-warning"
             >
               ⏸️ Stop Capture {processingTimeLeft > 0 && `(${processingTimeLeft}s)`}
@@ -576,7 +617,7 @@ function App() {
             <button 
               onClick={resetScanning}
               className="btn btn-warning"
-              disabled={isAnalyzing}
+              disabled={isAnalyzing || isCountingDown}
             >
               🔄 Reset
             </button>
@@ -596,6 +637,9 @@ function App() {
           </span>
           <span>Frames: {capturedFrames.length}</span>
           <span>Analyzed: {processedCount}</span>
+          {isCountingDown && (
+            <span className="status-streaming">⏰ Get Ready: {countdownValue}</span>
+          )}
           {isAnalyzing && (
             <span className="status-streaming">🔴 Analyzing Frames...</span>
           )}
@@ -618,7 +662,16 @@ function App() {
               />
               <canvas ref={canvasRef} style={{ display: 'none' }} />
               
-              {isProcessing && (
+              {isCountingDown && (
+                <div className="overlay">
+                  <div className="processing-indicator">
+                    ⏰ GET READY...
+                    <div style={{ fontSize: '48px', fontWeight: 'bold' }}>{countdownValue}</div>
+                  </div>
+                </div>
+              )}
+
+              {isProcessing && !isCountingDown && (
                 <div className="overlay">
                   <div className="processing-indicator">
                     🔍 CAPTURING FRAMES... ({processingTimeLeft}s)
@@ -700,8 +753,8 @@ function App() {
               </div>
               <div className="stat">
                 <span>📹 Status:</span>
-                <span className={isProcessing ? 'status-active' : 'status-inactive'}>
-                  {isProcessing ? 'Capturing' : 'Idle'}
+                <span className={isProcessing || isCountingDown ? 'status-active' : 'status-inactive'}>
+                  {isCountingDown ? 'Getting Ready' : isProcessing ? 'Capturing' : 'Idle'}
                 </span>
               </div>
               <div className="stat">
